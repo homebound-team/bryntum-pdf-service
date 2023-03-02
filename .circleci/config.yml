@@ -1,6 +1,8 @@
-# To configure your build/deploy, check out
-# https://circleci.com/docs/2.0/configuration-reference/
-version: 2
+version: 2.1
+
+orbs:
+  aws-cdk-orb: homebound-team/aws-cdk-orb@10.0.1
+  node: circleci/node@5.0.1
 
 only-run-on-branches: &only-run-on-branches
   branches:
@@ -16,24 +18,41 @@ workflows:
   version: 2
   workflow:
     jobs:
-      - build-and-test
-      - deploy:
+      - test:
+          context:
+            - npm-readonly
+            - dockerhub
+      - aws-cdk-orb/build-branch:
+          name: build-dev
+          context:
+            - aws-creds-dev
+            - npm-readonly
+            - dockerhub
+          filters:
+            <<: *only-run-on-branches
+          stage: dev
+          executor: aws-cdk-orb/machine
+      - aws-cdk-orb/deploy:
+          name: deploy-dev
+          stage: dev
+          context:
+            - aws-creds-dev
+            - npm-readonly
+            - dockerhub
           filters:
             <<: *only-run-on-main
-
-
+          executor: aws-cdk-orb/machine
+     
 jobs:
-  build-and-test:
+  test:
     docker:
-      # Available images - https://circleci.com/docs/2.0/circleci-images/
-      - image: cimg/base:2020.01
+      - image: cimg/node:16.14.0
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_ACCESS_TOKEN
     steps:
       - checkout
-      # Add your build and test setups here
-  deploy:
-    docker:
-      # Available images - https://circleci.com/docs/2.0/circleci-images/
-      - image: cimg/base:2020.01
-    steps:
-      - checkout
-      # Add your deploy steps here
+      - run: 'echo "npmAuthToken: $NPM_TOKEN" >> ${HOME}/.yarnrc.yml'
+      - node/install-packages:
+          pkg-manager: yarn-berry
+      - run: yarn test --runInBand
